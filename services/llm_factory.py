@@ -625,10 +625,10 @@ def _coerce_json_object(content: str) -> dict[str, Any]:
             parsed = json.loads(repaired)
         except json.JSONDecodeError:
             # Fallback: keep only the outermost JSON object span, then repair again.
-            l = repaired.find("{")
-            r = repaired.rfind("}")
-            if l >= 0 and r > l:
-                narrowed = _repair_json_text(repaired[l : r + 1])
+            start_idx = repaired.find("{")
+            end_idx = repaired.rfind("}")
+            if start_idx >= 0 and end_idx > start_idx:
+                narrowed = _repair_json_text(repaired[start_idx : end_idx + 1])
                 parsed = json.loads(narrowed)
             else:
                 raise
