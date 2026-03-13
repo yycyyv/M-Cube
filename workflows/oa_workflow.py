@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
 
 from agents.base_agent import BaseStructuredAgent
 from agents.oa_agents import (
+    OAState,
     application_baseline_node,
     argument_writer_node,
     claim_amendment_node,
@@ -40,42 +41,11 @@ MAX_WORKFLOW_RETRIES = 3
 MAX_TOOL_RETRIES = 2
 
 
-class OAState(TypedDict, total=False):
-    session_id: str
-    trace_id: str
-    status: str
-    current_step: str
-    oa_text: str
-    original_claims: dict[str, Any]
-    application_specification: dict[str, Any]
-    prior_arts_paths: list[str]
-    parsed_defects: dict[str, Any] | None
-    retrieved_contexts: list[dict[str, Any]]
-    prior_art_targeted_report: dict[str, Any] | None
-    image_recognition_report: dict[str, Any] | None
-    targeted_reading_audit: dict[str, Any] | None
-    application_baseline: dict[str, Any] | None
-    concession_gap_report: dict[str, Any] | None
-    mined_fallback_features: dict[str, Any] | None
-    stress_test_report: dict[str, Any] | None
-    strategy_decision: dict[str, Any] | None
-    rebuttal_plan: dict[str, Any] | None
-    amended_claims: dict[str, Any] | None
-    argument_draft: dict[str, Any] | None
-    spec_update_note: dict[str, Any] | None
-    response_traceability: dict[str, Any] | None
-    comparison_result: dict[str, Any] | None
-    visual_report: dict[str, Any] | None
-    application_images: list[dict[str, Any]]
-    prior_art_images: list[dict[str, Any]]
-    vision_warnings: list[dict[str, Any]]
-    final_strategy: dict[str, Any] | None
-    final_reply_text: str | None
-    error_count: int
-    tool_error_count: int
-    last_error: dict[str, Any] | None
-    node_latency_ms: int
-    max_reflections: int
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 @dataclass(frozen=True)
@@ -111,7 +81,7 @@ def _merge_state_with_defaults(state: OAState) -> OAState:
 def _record_node_error(state: OAState, step: str, exc: Exception, *, is_tool: bool = False) -> dict[str, Any]:
     key = "tool_error_count" if is_tool else "error_count"
     max_retry = MAX_TOOL_RETRIES if is_tool else MAX_WORKFLOW_RETRIES
-    next_count = int(state.get(key, 0)) + 1
+    next_count = _safe_int(state.get(key, 0), 0) + 1
     retryable = next_count < max_retry
     return {
         key: next_count,
@@ -239,7 +209,7 @@ def _traceability_step(state: OAState, bundle: OAAgentBundle) -> dict[str, Any]:
 def _route_with_retry(state: OAState, *, key: str, max_retry: int, done: str) -> str:
     if state.get("status") == "cancelled":
         return "end"
-    if state.get("last_error") and int(state.get(key, 0)) < max_retry:
+    if state.get("last_error") and _safe_int(state.get(key, 0), 0) < max_retry:
         return "retry"
     if state.get("status") == "failed":
         return "end"

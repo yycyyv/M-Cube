@@ -1,12 +1,13 @@
 ﻿from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
 from agents.base_agent import BaseStructuredAgent
 from agents.compare_agents import (
+    CompareState,
     amendment_suggestion_node,
     multimodal_draft_parser_node,
     multimodal_matrix_comparison_node,
@@ -27,34 +28,11 @@ MAX_WORKFLOW_RETRIES = 3
 MAX_TOOL_RETRIES = 2
 
 
-class CompareState(TypedDict, total=False):
-    session_id: str
-    trace_id: str
-    status: str
-    current_step: str
-    comparison_goal: str
-    original_claims: dict[str, Any]
-    application_specification: dict[str, Any]
-    prior_arts_paths: list[str]
-    application_images: list[dict[str, Any]]
-    prior_art_images: list[dict[str, Any]]
-    vision_warnings: list[dict[str, Any]]
-    draft_baseline: dict[str, Any] | None
-    prior_art_profiles: dict[str, Any] | None
-    feature_collision_matrix: dict[str, Any] | None
-    collision_matrix: dict[str, Any] | None
-    risk_report: dict[str, Any] | None
-    risk_assessment_report: dict[str, Any] | None
-    amendment_suggestions: dict[str, Any] | None
-    final_compare_report: dict[str, Any] | None
-    prior_art_targeted_report: dict[str, Any] | None
-    targeted_reading_audit: dict[str, Any] | None
-    retrieved_contexts: list[dict[str, Any]]
-    error_count: int
-    tool_error_count: int
-    last_error: dict[str, Any] | None
-    node_latency_ms: int
-    max_reflections: int
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 @dataclass(frozen=True)
@@ -84,7 +62,7 @@ def _merge_state_with_defaults(state: CompareState) -> CompareState:
 def _record_node_error(state: CompareState, step: str, exc: Exception, *, is_tool: bool = False) -> dict[str, Any]:
     key = "tool_error_count" if is_tool else "error_count"
     max_retry = MAX_TOOL_RETRIES if is_tool else MAX_WORKFLOW_RETRIES
-    next_count = int(state.get(key, 0)) + 1
+    next_count = _safe_int(state.get(key, 0), 0) + 1
     retryable = next_count < max_retry
     return {
         key: next_count,
@@ -152,7 +130,7 @@ def _amendment_step(state: CompareState, bundle: CompareAgentBundle) -> dict[str
 def _route_with_retry(state: CompareState, *, key: str, max_retry: int, done: str) -> str:
     if state.get("status") == "cancelled":
         return "end"
-    if state.get("last_error") and int(state.get(key, 0)) < max_retry:
+    if state.get("last_error") and _safe_int(state.get(key, 0), 0) < max_retry:
         return "retry"
     if state.get("status") == "failed":
         return "end"

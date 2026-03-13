@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any, cast
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from agents.base_agent import BaseStructuredAgent
 from agents.drafter_agents import (
+    DraftingState,
     draft_claims_node,
     drawing_analyze_node,
     extract_tech_node,
@@ -17,43 +18,13 @@ from agents.drafter_agents import (
     traceability_check_node,
     write_spec_node,
 )
-from models.draft_schemas import ClaimTraceabilityReport, ClaimsSet, Specification, TechSummary
+from models.draft_schemas import ClaimTraceabilityReport, ClaimsSet, ClaimsSetRevision, Specification, TechSummary
 from models.image_schemas import DrawingMap
 from models.review_schemas import ReviewReport
 
 
 MAX_WORKFLOW_RETRIES = 3
 MAX_CLAIM_REVISION_ROUNDS = 3
-
-
-class DraftingState(TypedDict, total=False):
-    # Core session metadata
-    session_id: str
-    trace_id: str
-    status: str
-    current_step: str
-
-    # Drafting payload
-    disclosure_text: str
-    disclosure_images: list[dict[str, Any]]
-    tech_summary: dict[str, Any] | None
-    claims: dict[str, Any] | None
-    drawing_map: dict[str, Any] | None
-    claim_traceability: dict[str, Any] | None
-    approved_claims: dict[str, Any] | None
-    approved_specification: dict[str, Any] | None
-    specification: dict[str, Any] | None
-    vision_warnings: list[dict[str, Any]]
-    review_issues: list[dict[str, Any]]
-    revision_instruction: str | None
-    claim_revision_count: int
-    apply_auto_claim_revision: bool | None
-
-    # Resilience fields
-    error_count: int
-    last_error: dict[str, Any] | None
-    model_name: str
-    node_latency_ms: int
 
 
 @dataclass(frozen=True)
@@ -65,7 +36,7 @@ class DraftAgentBundle:
     traceability_agent: BaseStructuredAgent[ClaimTraceabilityReport]
     write_spec_agent: BaseStructuredAgent[Specification]
     logic_review_agent: BaseStructuredAgent[ReviewReport]
-    revise_claims_agent: BaseStructuredAgent[ClaimsSet] | None = None
+    revise_claims_agent: BaseStructuredAgent[ClaimsSetRevision] | None = None
     drawing_analyzer_agent: BaseStructuredAgent[DrawingMap] | None = None
 
 
@@ -379,7 +350,7 @@ def _traceability_step(state: DraftingState, bundle: DraftAgentBundle) -> dict[s
 def _revise_claims_step(state: DraftingState, bundle: DraftAgentBundle) -> dict[str, Any]:
     state = _merge_state_with_defaults(state)
     try:
-        revise_agent = bundle.revise_claims_agent or bundle.draft_claims_agent
+        revise_agent = bundle.revise_claims_agent or cast(BaseStructuredAgent[ClaimsSetRevision], bundle.draft_claims_agent)
         update = revise_claims_node(state, revise_agent)
         update["last_error"] = None
         return update

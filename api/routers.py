@@ -6,7 +6,7 @@ import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import uuid4
 
 import fitz  # PyMuPDF
@@ -24,7 +24,7 @@ from models.compare_schemas import (
     PriorArtProfileSet,
     RiskAssessmentReport,
 )
-from models.draft_schemas import ClaimTraceabilityReport, ClaimsSet, Specification, TechSummary
+from models.draft_schemas import ClaimTraceabilityReport, ClaimsSet, ClaimsSetRevision, Specification, TechSummary
 from models.image_schemas import DrawingMap
 from models.oa_schemas import (
     ApplicationBaselineReport,
@@ -45,7 +45,7 @@ from models.polish_schemas import (
     AmplifiedSpecification,
     ClaimArchitecturePlan,
     DiagnosticReport,
-    SynergyFeatureVault,
+    SynergyVault,
 )
 from services.checkpoint import CheckpointManager
 from services.file_store import InMemoryFileStore
@@ -353,10 +353,10 @@ def get_file_store() -> InMemoryFileStore:
     return _FILE_STORE
 
 
-def _make_stub_llm_callable(payload: dict[str, Any]):
+def _make_stub_llm_callable(payload: Any):
     """MVP stub callable to keep workflow executable before real model integration."""
 
-    def _call(_: str, __: dict[str, Any]) -> dict[str, Any]:
+    def _call(_: str, __: dict[str, Any]) -> Any:
         return payload
 
     return _call
@@ -1073,7 +1073,7 @@ def _build_draft_graph_for_runtime(*, llm_runtime: dict[str, Any], llm_api_key: 
             llm_callable=llm_callable or _make_stub_llm_callable(_DRAFT_STUBS["draft_claims"]),
             retry_policy=RetryPolicy(max_retries=3),
         ),
-        revise_claims_agent=BaseStructuredAgent[ClaimsSet](
+        revise_claims_agent=BaseStructuredAgent[ClaimsSetRevision](
             name="revise_claims_agent",
             llm_callable=llm_callable or _make_stub_llm_callable(_DRAFT_STUBS["revise_claims"]),
             retry_policy=RetryPolicy(max_retries=3),
@@ -1227,7 +1227,7 @@ def _build_polish_graph_for_runtime(*, llm_runtime: dict[str, Any], llm_api_key:
             llm_callable=llm_callable or _make_stub_llm_callable(_POLISH_STUBS["diagnostic_analyzer"]),
             retry_policy=RetryPolicy(max_retries=3),
         ),
-        synergy_miner_agent=BaseStructuredAgent[SynergyFeatureVault](
+        synergy_miner_agent=BaseStructuredAgent[SynergyVault](
             name="polish_synergy_miner_agent",
             llm_callable=llm_callable or _make_stub_llm_callable(_POLISH_STUBS["synergy_miner"]),
             retry_policy=RetryPolicy(max_retries=3),
@@ -1314,13 +1314,13 @@ class CompareStartRequest(BaseModel):
     idempotency_key: str = Field(default_factory=lambda: str(uuid4()), min_length=1)
     comparison_goal: str = "patentability"
     application_file_id: str | None = Field(default=None, min_length=1)
-    prior_art_file_ids: list[str] | None = Field(
+    prior_art_file_ids: list[str] = Field(
         default_factory=list,
         validation_alias=AliasChoices("prior_art_file_ids", "prior_arts_file_ids"),
     )
-    original_claims: dict[str, Any] | None = Field(default_factory=dict)
-    application_specification: dict[str, Any] | None = Field(default_factory=dict)
-    prior_arts_paths: list[str] | None = Field(
+    original_claims: dict[str, Any] = Field(default_factory=dict)
+    application_specification: dict[str, Any] = Field(default_factory=dict)
+    prior_arts_paths: list[str] = Field(
         default_factory=list,
         validation_alias=AliasChoices("prior_arts_paths", "prior_art_paths"),
     )
@@ -1380,8 +1380,8 @@ class PolishStartRequest(BaseModel):
 
     idempotency_key: str = Field(default_factory=lambda: str(uuid4()), min_length=1)
     application_file_id: str | None = Field(default=None, min_length=1)
-    original_claims: dict[str, Any] | None = Field(default_factory=dict)
-    application_specification: dict[str, Any] | None = Field(default_factory=dict)
+    original_claims: dict[str, Any] = Field(default_factory=dict)
+    application_specification: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("original_claims", "application_specification", mode="before")
@@ -1826,7 +1826,7 @@ def start_draft(
     }
 
     try:
-        output = _CHECKPOINT_MANAGER.invoke(graph=draft_graph, state=state, thread_id=session_id)
+        output = _CHECKPOINT_MANAGER.invoke(graph=draft_graph, state=cast(dict[str, Any], state), thread_id=session_id)
     except Exception as exc:  # noqa: BLE001
         raise ApiError(
             http_status=500,
@@ -2315,7 +2315,7 @@ def start_oa(
         "node_latency_ms": 0,
     }
     try:
-        output = _CHECKPOINT_MANAGER.invoke(graph=oa_graph, state=state, thread_id=session_id)
+        output = _CHECKPOINT_MANAGER.invoke(graph=oa_graph, state=cast(dict[str, Any], state), thread_id=session_id)
     except Exception as exc:  # noqa: BLE001
         raise ApiError(
             http_status=500,
@@ -2569,6 +2569,7 @@ def get_runtime_image(image_id: str):
             http_status=404,
             code="E404_IMAGE_NOT_FOUND",
             message="Image not found.",
+            session_id="unknown",
             details={"image_id": image_id},
         )
     return FileResponse(path=str(resolved))
@@ -2727,7 +2728,7 @@ def start_compare(
         "node_latency_ms": 0,
     }
     try:
-        output = _CHECKPOINT_MANAGER.invoke(graph=compare_graph, state=state, thread_id=session_id)
+        output = _CHECKPOINT_MANAGER.invoke(graph=compare_graph, state=cast(dict[str, Any], state), thread_id=session_id)
     except Exception as exc:  # noqa: BLE001
         raise ApiError(
             http_status=500,
@@ -2928,7 +2929,7 @@ def start_polish(
         "node_latency_ms": 0,
     }
     try:
-        output = _CHECKPOINT_MANAGER.invoke(graph=polish_graph, state=state, thread_id=session_id)
+        output = _CHECKPOINT_MANAGER.invoke(graph=polish_graph, state=cast(dict[str, Any], state), thread_id=session_id)
     except Exception as exc:  # noqa: BLE001
         raise ApiError(
             http_status=500,

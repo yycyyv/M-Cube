@@ -267,7 +267,7 @@ def _call_openai_compatible(
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     image_payloads = _read_image_payloads(context)
     selected_model = _pick_model_for_context(text_model=text_model, vision_model=vision_model, context=context)
-    messages = _build_messages(prompt, context)
+    messages: list[dict[str, Any]] = _build_messages(prompt, context)
     if image_payloads:
         user_content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
         for img in image_payloads:

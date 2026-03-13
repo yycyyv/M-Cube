@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
 from agents.base_agent import BaseStructuredAgent
 from agents.polish_agents import (
+    PolishState,
     adversarial_reviewer_node,
     claim_architect_node,
     diagnostic_analyzer_node,
@@ -18,7 +19,7 @@ from models.polish_schemas import (
     AmplifiedSpecification,
     ClaimArchitecturePlan,
     DiagnosticReport,
-    SynergyFeatureVault,
+    SynergyVault,
 )
 
 
@@ -26,33 +27,10 @@ MAX_WORKFLOW_RETRIES = 3
 MAX_REVISION_LOOPS = 2
 
 
-class PolishState(TypedDict, total=False):
-    session_id: str
-    trace_id: str
-    status: str
-    current_step: str
-    original_claims: dict[str, Any]
-    application_specification: dict[str, Any]
-    application_images: list[dict[str, Any]]
-    diagnostic_report: dict[str, Any] | None
-    synergy_feature_vault: dict[str, Any] | None
-    claim_architecture_plan: dict[str, Any] | None
-    optimized_claims_text: str
-    amplified_specification: dict[str, Any] | None
-    optimized_specification_text: str
-    adversarial_review_report: dict[str, Any] | None
-    polish_final_package: dict[str, Any] | None
-    polish_revision_count: int
-    error_count: int
-    tool_error_count: int
-    last_error: dict[str, Any] | None
-    node_latency_ms: int
-
-
 @dataclass(frozen=True)
 class PolishAgentBundle:
     diagnostic_agent: BaseStructuredAgent[DiagnosticReport]
-    synergy_miner_agent: BaseStructuredAgent[SynergyFeatureVault]
+    synergy_miner_agent: BaseStructuredAgent[SynergyVault]
     claim_architect_agent: BaseStructuredAgent[ClaimArchitecturePlan]
     specification_amplifier_agent: BaseStructuredAgent[AmplifiedSpecification]
     adversarial_reviewer_agent: BaseStructuredAgent[AdversarialReviewReport]

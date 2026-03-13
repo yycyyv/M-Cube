@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 import time
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 from models.image_schemas import ImageAsset, PriorArtVisualDiff, PriorArtVisualReport
 from models.oa_schemas import (
@@ -26,10 +26,11 @@ from .oa_visual_analyzer_agent import run_prior_art_visual_analyzer
 from tools.rag_search import RAGSearchService
 
 
-class OAState(TypedDict):
+class OAState(TypedDict, total=False):
     session_id: str
     trace_id: str
     status: str
+    current_step: str
     oa_text: str
     original_claims: dict[str, Any]
     application_specification: dict[str, Any]
@@ -57,11 +58,21 @@ class OAState(TypedDict):
     final_strategy: dict[str, Any] | None
     final_reply_text: str | None
     error_count: int
+    tool_error_count: int
     last_error: dict[str, Any] | None
+    node_latency_ms: int
+    max_reflections: int
 
 
 def _duration_ms(started_at: float) -> int:
     return int((time.perf_counter() - started_at) * 1000)
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def oa_parser_node(
@@ -180,14 +191,14 @@ def multimodal_prior_art_agent_node(
                 difference_assessment=item.amendment_avoidance_warning,
             )
         )
-    for item in targeted_report.disputable_items:
-        point = item.multimodal_reality_check
+    for disputable in targeted_report.disputable_items:
+        point = disputable.multimodal_reality_check
         diff_items.append(
             PriorArtVisualDiff(
-                feature_name=item.target_feature,
-                application_evidence=item.examiner_assertion,
+                feature_name=disputable.target_feature,
+                application_evidence=disputable.examiner_assertion,
                 prior_art_evidence=point,
-                difference_assessment=item.rebuttal_angle,
+                difference_assessment=disputable.rebuttal_angle,
             )
         )
 
@@ -195,8 +206,8 @@ def multimodal_prior_art_agent_node(
     pattern = re.compile(r"图\s*\d+")
     for item in targeted_report.supporting_items:
         figure_refs.extend(pattern.findall(item.prior_art_visual_disclosure))
-    for item in targeted_report.disputable_items:
-        figure_refs.extend(pattern.findall(item.multimodal_reality_check))
+    for disputable in targeted_report.disputable_items:
+        figure_refs.extend(pattern.findall(disputable.multimodal_reality_check))
     if not figure_refs:
         # Fallback to OA coordinates when report text doesn't carry explicit figure labels.
         for item in defect_items if isinstance(defect_items, list) else []:
@@ -343,7 +354,7 @@ def concession_and_gap_node(
     agent: BaseStructuredAgent[ConcessionGapReport],
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
-    max_reflections = int(state.get("max_reflections", 3) or 3)
+    max_reflections = _safe_int(state.get("max_reflections", 3), 3) or 3
     prompt = (
         "You are an Expert Chinese Patent OA Strategy Analyst.\n"
         "Your task is to produce a Concession & Gap Report for downstream claim amendment.\n"
@@ -378,7 +389,7 @@ def concession_and_gap_node(
     # Backward-compatible derivation for downstream nodes still using legacy fields.
     if not payload.get("failed_claims"):
         payload["failed_claims"] = [
-            int(item.get("claim_number"))
+            _safe_int(item.get("claim_number"), 0)
             for item in payload.get("claim_assessments", [])
             if isinstance(item, dict) and str(item.get("status", "")).upper() == "DEFEATED"
         ]
@@ -465,7 +476,7 @@ def prior_art_stress_tester_node(
     agent: BaseStructuredAgent[PriorArtStressTestReport],
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
-    max_reflections = int(state.get("max_reflections", 3) or 3)
+    max_reflections = _safe_int(state.get("max_reflections", 3), 3) or 3
     prior_art_paths = [item.get("source_path", "") for item in state.get("prior_art_images", []) if item.get("source_path")]
     prior_art_mimes = [item.get("mime_type", "image/png") for item in state.get("prior_art_images", []) if item.get("source_path")]
     context_paths = prior_art_paths[:6]
@@ -597,7 +608,7 @@ def strategy_decision_node(
     if global_decision == "AMEND_AND_ARGUE":
         if not isinstance(amendment_plan, dict):
             amendment_plan = {}
-        target_claim = int(amendment_plan.get("target_independent_claim", 1) or 1)
+        target_claim = _safe_int(amendment_plan.get("target_independent_claim", 1), 1) or 1
         tactic = str(amendment_plan.get("amendment_tactic", "")).upper()
         if recommended_merges:
             tactic = "MERGE_DEPENDENT"
@@ -638,9 +649,11 @@ def strategy_decision_node(
 
     rebuttal_items = decision_payload.get("rebuttal_plan")
     if not isinstance(rebuttal_items, list) or len(rebuttal_items) == 0:
-        stress_results = []
+        stress_results: list[dict[str, Any]] = []
         if isinstance(stress_report, dict):
-            stress_results = stress_report.get("tested_features") or stress_report.get("results") or []
+            raw_stress_results = stress_report.get("tested_features") or stress_report.get("results") or []
+            if isinstance(raw_stress_results, list):
+                stress_results = [item for item in raw_stress_results if isinstance(item, dict)]
         foundation = "结合节点3与节点6结果，修改后特征与D1/D2存在明确结构差异并产生独特技术效果。"
         if isinstance(stress_results, list):
             for item in stress_results:
@@ -649,7 +662,7 @@ def strategy_decision_node(
                     break
         rebuttal_items = [
             {
-                "target_claim": int((decision_payload.get("amendment_plan") or {}).get("target_independent_claim", 1) or 1),
+                "target_claim": _safe_int((decision_payload.get("amendment_plan") or {}).get("target_independent_claim", 1), 1) or 1,
                 "core_argument_logic": foundation,
                 "evidence_support": "依据节点3图文核验与节点6红队压测存活结论。",
             }
@@ -658,11 +671,11 @@ def strategy_decision_node(
 
     decision = StrategyDecision.model_validate(decision_payload)
 
-    action_map = {"AMEND_AND_ARGUE": "Amend", "ARGUE_ONLY": "Argue"}
+    action_map: dict[str, Literal["Argue", "Amend"]] = {"AMEND_AND_ARGUE": "Amend", "ARGUE_ONLY": "Argue"}
     first_rebuttal = rebuttal_items[0] if isinstance(rebuttal_items, list) and rebuttal_items else {}
     rebuttal_plan = RebuttalActionPlan(
         action=action_map.get(decision_payload.get("global_decision", "AMEND_AND_ARGUE"), "Argue"),
-        target_claims=[int(first_rebuttal.get("target_claim", 1))],
+        target_claims=[_safe_int(first_rebuttal.get("target_claim", 1), 1)],
         rationale=str(decision_payload.get("strategy_rationale", "")),
         argument_points=[str(first_rebuttal.get("core_argument_logic", ""))],
         amendment_instructions=[str((decision_payload.get("amendment_plan") or {}).get("amendment_guidance", "")).strip()]
@@ -905,7 +918,9 @@ def response_traceability_node(
 
     decision = state.get("strategy_decision") or {}
     decision_flag = str(decision.get("global_decision", decision.get("action", "")))
-    final_decision = "amend_or_argument" if decision_flag == "AMEND_AND_ARGUE" else "argument_only"
+    final_decision: Literal["amend_or_argument", "argument_only"] = (
+        "amend_or_argument" if decision_flag == "AMEND_AND_ARGUE" else "argument_only"
+    )
     amendment_plan = decision.get("amendment_plan", {}) if isinstance(decision, dict) else {}
     rebuttal_items = decision.get("rebuttal_plan", []) if isinstance(decision, dict) else []
     rebuttal_points = []

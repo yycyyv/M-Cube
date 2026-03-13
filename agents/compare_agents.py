@@ -33,13 +33,26 @@ class CompareState(TypedDict, total=False):
     risk_report: dict[str, Any] | None
     risk_assessment_report: dict[str, Any] | None
     amendment_suggestions: dict[str, Any] | None
+    final_compare_report: dict[str, Any] | None
     prior_art_targeted_report: dict[str, Any] | None
     targeted_reading_audit: dict[str, Any] | None
+    retrieved_contexts: list[dict[str, Any]]
+    error_count: int
+    tool_error_count: int
+    last_error: dict[str, Any] | None
+    max_reflections: int
     node_latency_ms: int
 
 
 def _duration_ms(started_at: float) -> int:
     return int((time.perf_counter() - started_at) * 1000)
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _allowed_doc_ids_from_paths(paths: list[str]) -> list[str]:
@@ -215,7 +228,7 @@ def multimodal_prior_art_node(
             audit = profile.get("reading_audit")
             if not isinstance(audit, dict):
                 continue
-            used += int(audit.get("actually_used_image_count", 0) or 0)
+            used += _safe_int(audit.get("actually_used_image_count", 0), 0)
             warning_text = str(audit.get("omission_warning", "")).strip()
             if warning_text and warning_text != "合规":
                 warnings.append(warning_text)
@@ -255,7 +268,8 @@ def multimodal_matrix_comparison_node(
     context_paths = (app_paths[:4] + prior_paths[:10])[:14]
     context_mimes = (app_mimes[:4] + prior_mimes[:10])[:14]
 
-    compact_contexts = _compact_retrieved_contexts(state.get("retrieved_contexts", []))
+    raw_contexts = state.get("retrieved_contexts", [])
+    compact_contexts = _compact_retrieved_contexts(raw_contexts if isinstance(raw_contexts, list) else [])
     application_baseline = state.get("application_baseline") or state.get("draft_baseline")
     prompt = (
         "You are the core Multimodal Feature Matrix Collision Agent for Chinese patentability.\n"
@@ -303,7 +317,7 @@ def risk_assessment_node(
     agent: BaseStructuredAgent[RiskAssessmentReport],
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
-    max_reflections = int(state.get("max_reflections", 3) or 3)
+    max_reflections = _safe_int(state.get("max_reflections", 3), 3) or 3
     collision_matrix = state.get("collision_matrix") or state.get("feature_collision_matrix")
     if collision_matrix is None:
         raise ValueError("feature_collision_matrix is required before risk assessment.")
@@ -353,7 +367,7 @@ def amendment_suggestion_node(
     if baseline_payload is None:
         raise ValueError("draft_baseline is required before amendment suggestion.")
 
-    draft_baseline = baseline_payload or {}
+    draft_baseline = baseline_payload if isinstance(baseline_payload, dict) else {}
     fallback_index = draft_baseline.get("fallback_feature_index")
     if not fallback_index:
         fallback_index = draft_baseline.get("spec_feature_index", [])

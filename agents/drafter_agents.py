@@ -13,7 +13,7 @@ from .base_agent import BaseStructuredAgent
 from .drawing_analyzer_agent import run_drawing_analyzer
 
 
-class DraftingState(TypedDict):
+class DraftingState(TypedDict, total=False):
     session_id: str
     trace_id: str
     status: str
@@ -23,9 +23,13 @@ class DraftingState(TypedDict):
     claims: dict[str, Any] | None
     drawing_map: dict[str, Any] | None
     claim_traceability: dict[str, Any] | None
+    approved_claims: dict[str, Any] | None
+    approved_specification: dict[str, Any] | None
     specification: dict[str, Any] | None
     vision_warnings: list[dict[str, Any]]
     review_issues: list[dict[str, Any]]
+    revision_instruction: str | None
+    apply_auto_claim_revision: bool | None
     current_step: str
     error_count: int
     claim_revision_count: int
@@ -178,7 +182,7 @@ def traceability_check_node(
 
 def revise_claims_node(
     state: DraftingState,
-    agent: BaseStructuredAgent[ClaimsSet],
+    agent: BaseStructuredAgent[ClaimsSetRevision],
 ) -> dict[str, Any]:
     """
     Auto-correct claims based on traceability report.
@@ -205,7 +209,10 @@ def revise_claims_node(
         f"[TRACEABILITY_REPORT]\n{state['claim_traceability']}"
     )
     result = agent.run_structured(prompt=prompt, output_model=ClaimsSetRevision)
-    claims = _normalize_revised_claims(result, state["claims"])
+    original_claims = state.get("claims")
+    if not isinstance(original_claims, dict):
+        raise ValueError("claims must be a dict before revision.")
+    claims = _normalize_revised_claims(result, original_claims)
     current_revisions = int(state.get("claim_revision_count", 0)) + 1
     return {
         "claims": claims,

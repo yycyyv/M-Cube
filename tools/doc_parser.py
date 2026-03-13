@@ -420,7 +420,7 @@ class DocumentParser:
 
     def _parse_docx(self, path: Path) -> str:
         """Extract text from DOCX paragraphs and tables; many templates store body content in tables."""
-        doc = Document(path)
+        doc = Document(str(path))
         collected: list[str] = []
         seen: set[str] = set()
 
