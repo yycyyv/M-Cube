@@ -33,7 +33,15 @@ def _parse_cors_origins() -> list[str]:
     """
     raw = os.getenv(
         "CORS_ALLOW_ORIGINS",
-        "http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:1420,http://localhost:1420,tauri://localhost",
+        (
+            "http://127.0.0.1:5173,"
+            "http://localhost:5173,"
+            "http://127.0.0.1:1420,"
+            "http://localhost:1420,"
+            "tauri://localhost,"
+            "http://tauri.localhost,"
+            "https://tauri.localhost"
+        ),
     )
     origins = [item.strip() for item in raw.split(",") if item.strip()]
     return origins

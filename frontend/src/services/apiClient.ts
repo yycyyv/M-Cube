@@ -42,6 +42,10 @@ interface ApiClientOptions {
 
 type RequestHeaders = Record<string, string>;
 
+const NETWORK_RETRY_ATTEMPTS = 18;
+const NETWORK_RETRY_BASE_DELAY_MS = 300;
+const NETWORK_RETRY_MAX_DELAY_MS = 3000;
+
 export class ApiClient {
   private readonly baseUrl: string;
   private readonly apiKey?: string;
@@ -153,6 +157,23 @@ export class ApiClient {
     });
   }
 
+  private async fetchWithNetworkRetry(url: string, init: RequestInit): Promise<Response> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        return await fetch(url, init);
+      } catch (error) {
+        lastError = error;
+        if (attempt >= NETWORK_RETRY_ATTEMPTS) {
+          break;
+        }
+        const delay = Math.min(NETWORK_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), NETWORK_RETRY_MAX_DELAY_MS);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error("Network request failed.");
+  }
+
   private async requestBlob(path: string, init: RequestInit): Promise<Blob> {
     const headers = new Headers(init.headers);
     if (this.apiKey) {
@@ -161,7 +182,7 @@ export class ApiClient {
 
     let response: Response;
     try {
-      response = await fetch(`${this.baseUrl}${path}`, { ...init, headers });
+      response = await this.fetchWithNetworkRetry(`${this.baseUrl}${path}`, { ...init, headers });
     } catch (error) {
       throw new ApiClientError({
         code: "E_NETWORK",
@@ -204,7 +225,7 @@ export class ApiClient {
 
     let response: Response;
     try {
-      response = await fetch(`${this.baseUrl}${path}`, { ...init, headers });
+      response = await this.fetchWithNetworkRetry(`${this.baseUrl}${path}`, { ...init, headers });
     } catch (error) {
       throw new ApiClientError({
         code: "E_NETWORK",

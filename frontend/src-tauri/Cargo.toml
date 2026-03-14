@@ -2,7 +2,7 @@
 name = "mcube_desktop"
 version = "0.1.0"
 description = "Desktop client for M-Cube"
-authors = ["MultiAgent Team"]
+authors = ["yycyyv"]
 license = ""
 repository = ""
 edition = "2021"

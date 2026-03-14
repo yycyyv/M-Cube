@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "M-Cube",
-  "version": "0.1.0",
-  "identifier": "com.multiagent.patent",
+  "version": "0.1.2",
+  "identifier": "com.yycyyv.mcube",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
@@ -25,9 +25,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": [
-      "binaries/mcube-backend"
-    ],
+    "resources": {
+      "binaries": "binaries"
+    },
     "icon": [
       "icons/icon.png",
       "icons/icon.ico",
