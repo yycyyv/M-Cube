@@ -1253,6 +1253,49 @@ def _parse_uploaded_file(
     return parsed.text, parsed.source_path, record.filename
 
 
+def _parse_uploaded_pdf_pages(file_id: str, store: InMemoryFileStore) -> list[str]:
+    """Parse uploaded PDF into per-page text. Returns [] for non-PDF files."""
+    record = store.get(file_id)
+    if record is None:
+        raise ApiError(
+            http_status=404,
+            code="E404_FILE_NOT_FOUND",
+            message="Uploaded file not found.",
+            session_id="unknown",
+            details={"file_id": file_id},
+        )
+
+    file_path = Path(record.path)
+    if file_path.suffix.lower() != ".pdf":
+        return []
+
+    pages: list[str] = []
+    try:
+        with fitz.open(record.path) as doc:
+            for page in doc:
+                page_text = page.get_text("text") or ""
+                pages.append(page_text.replace("\r\n", "\n").replace("\r", "\n").strip())
+    except FileNotFoundError as exc:
+        raise ApiError(
+            http_status=404,
+            code="E404_FILE_NOT_FOUND",
+            message=str(exc),
+            session_id="unknown",
+            details={"file_id": file_id, "filename": record.filename},
+        ) from exc
+    except Exception as exc:  # pragma: no cover - parser backend failures
+        raise ApiError(
+            http_status=400,
+            code="E400_INVALID_INPUT",
+            message=f"Failed to parse PDF pages: {exc}",
+            session_id="unknown",
+            details={"file_id": file_id, "filename": record.filename},
+            retryable=False,
+        ) from exc
+
+    return pages
+
+
 def _extract_uploaded_images(file_id: str, store: InMemoryFileStore) -> list[dict[str, Any]]:
     record = store.get(file_id)
     if record is None:
