@@ -28,24 +28,29 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
 
       - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install ruff mypy pytest-cov
+          uv sync --frozen --all-groups
 
       - name: Lint (ruff)
-        run: ruff check .
+        run: uv run ruff check .
 
       - name: Type Check (mypy)
-        run: mypy . --ignore-missing-imports
+        run: uv run mypy . --ignore-missing-imports
 
       - name: Unit + Workflow Tests with Coverage
         run: |
           mkdir -p reports
-          pytest tests -q \
+          uv run pytest tests -q \
             --junitxml=reports/junit-tests.xml \
             --cov=. \
             --cov-report=xml:reports/coverage.xml \
@@ -53,12 +58,12 @@ jobs:
 
       - name: Contract Tests
         run: |
-          pytest tests/test_api_contract.py -q \
+          uv run pytest tests/test_api_contract.py -q \
             --junitxml=reports/junit-contract.xml
 
       - name: Smoke E2E Tests
         run: |
-          pytest \
+          uv run pytest \
             tests/test_draft_flow.py::test_draft_happy_path_start_continue \
             tests/test_draft_flow.py::test_cancel_session \
             -q \

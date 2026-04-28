@@ -1,10 +1,14 @@
 FROM node:20-alpine
 
+# Enable Corepack so the pnpm version pinned in package.json (`packageManager`) is used.
+RUN corepack enable
+
 WORKDIR /app/frontend
 
 # Install deps first to leverage cache.
-COPY frontend/package*.json /app/frontend/
-RUN npm install
+# Copy lockfile + manifest so `pnpm install --frozen-lockfile` is reproducible.
+COPY frontend/package.json frontend/pnpm-lock.yaml /app/frontend/
+RUN pnpm install --frozen-lockfile
 
 # Copy frontend source.
 COPY frontend /app/frontend
@@ -12,4 +16,4 @@ COPY frontend /app/frontend
 EXPOSE 1420
 
 # Avoid Windows-specific npm script ("set ... && vite") inside Linux container.
-CMD ["npx", "vite", "--host", "0.0.0.0", "--port", "1420", "--strictPort"]
+CMD ["pnpm", "exec", "vite", "--host", "0.0.0.0", "--port", "1420", "--strictPort"]

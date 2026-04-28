@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.1",
   "type": "module",
+  "packageManager": "pnpm@10.25.0",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -11,8 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "tauri": "tauri",
-    "tauri:dev": "python ../scripts/ensure_backend_sidecar.py && tauri dev",
-    "tauri:build": "python ../scripts/build_backend_sidecar.py && tauri build"
+    "tauri:dev": "uv run --project .. python ../scripts/ensure_backend_sidecar.py && tauri dev",
+    "tauri:build": "uv run --project .. python ../scripts/build_backend_sidecar.py && tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

@@ -114,7 +114,7 @@ try {
   }
 
   Write-Host "[1/4] Starting Tauri desktop app..." -ForegroundColor Cyan
-  $tauri = Start-Process -FilePath "npm.cmd" -ArgumentList "--prefix", $FrontendDir, "run", "tauri:dev" -PassThru
+  $tauri = Start-Process -FilePath "pnpm.cmd" -ArgumentList "--dir", $FrontendDir, "tauri:dev" -PassThru
   Start-Sleep -Seconds $StartupWaitSeconds
 
   if ($tauri.HasExited) {
