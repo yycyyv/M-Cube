@@ -4,8 +4,8 @@
   "version": "0.1.1",
   "identifier": "com.yycyyv.mcube",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "pnpm run dev",
+    "beforeBuildCommand": "pnpm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -16,7 +16,9 @@
         "width": 1440,
         "height": 900,
         "resizable": true,
-        "decorations": false
+        "decorations": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {

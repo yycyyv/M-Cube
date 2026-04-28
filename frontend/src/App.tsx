@@ -173,9 +173,12 @@ function App() {
 
   const sseRef = useRef<SessionSSEConnection | null>(null);
   const pollerRef = useRef<number | null>(null);
+  const tauriWindowRef = useRef<unknown>(null);
   const isDesktopRuntime =
     typeof window !== "undefined" &&
     (("__TAURI_INTERNALS__" in window) || ("__TAURI__" in window));
+  const isMacRuntime =
+    typeof navigator !== "undefined" && /Mac|iPhone|iPad/i.test(navigator.userAgent);
 
   const hasSession = useMemo(() => !!sessionId, [sessionId]);
   const hasActiveWorkflowSession = useMemo(
@@ -800,25 +803,32 @@ function App() {
 
   const withCurrentWindow = useCallback(async () => {
     if (!isDesktopRuntime) return null;
+    if (tauriWindowRef.current) {
+      return tauriWindowRef.current as Awaited<ReturnType<typeof import("@tauri-apps/api/window").getCurrentWindow>>;
+    }
     const mod = await import("@tauri-apps/api/window");
-    return mod.getCurrentWindow();
+    const current = mod.getCurrentWindow();
+    tauriWindowRef.current = current;
+    return current;
   }, [isDesktopRuntime]);
 
+  const windowActionInFlightRef = useRef(false);
   const runWindowAction = useCallback(
     async (action: (current: NonNullable<Awaited<ReturnType<typeof withCurrentWindow>>>) => Promise<void>) => {
+      if (windowActionInFlightRef.current) return;
+      windowActionInFlightRef.current = true;
       try {
         const current = await withCurrentWindow();
         if (!current) return;
         await action(current as NonNullable<Awaited<ReturnType<typeof withCurrentWindow>>>);
       } catch (error) {
-        appendEvent({
-          timestamp: new Date().toISOString(),
-          type: "window_action_error",
-          payload: { message: error instanceof Error ? error.message : "window action failed" },
-        });
+        if (error === false || error == null) return;
+        /* swallow window action errors */
+      } finally {
+        windowActionInFlightRef.current = false;
       }
     },
-    [appendEvent, withCurrentWindow],
+    [withCurrentWindow],
   );
 
   const minimizeWindow = useCallback(async () => {
@@ -829,16 +839,88 @@ function App() {
 
   const toggleMaximizeWindow = useCallback(async () => {
     await runWindowAction(async (current) => {
-      await current.toggleMaximize();
-      setIsMaximized(await current.isMaximized());
+      if (isMacRuntime) {
+        // macOS: avoid native fullscreen (which overlays a translucent titlebar
+        // on top of our custom one). Manually zoom to the monitor work area.
+        try {
+          const winMod = await import("@tauri-apps/api/window");
+          const { LogicalPosition, LogicalSize } = winMod;
+          type MonitorLike = { size: { width: number; height: number }; position: { x: number; y: number }; scaleFactor: number };
+          const currentMonitor = (winMod as unknown as { currentMonitor?: () => Promise<MonitorLike | null> }).currentMonitor;
+          let monitor: MonitorLike | null = null;
+          if (typeof currentMonitor === "function") {
+            monitor = await currentMonitor();
+          }
+          const isMax = await current.isMaximized();
+          if (isMax) {
+            await current.unmaximize();
+          } else if (monitor) {
+            const scale = monitor.scaleFactor || 1;
+            const w = monitor.size.width / scale;
+            const h = monitor.size.height / scale;
+            const x = monitor.position.x / scale;
+            const y = monitor.position.y / scale;
+            await current.setPosition(new LogicalPosition(x, y));
+            await current.setSize(new LogicalSize(w, h));
+            await current.maximize();
+          } else {
+            await current.maximize();
+          }
+        } catch {
+          /* ignore */
+        }
+      } else {
+        await current.toggleMaximize();
+      }
+      try {
+        setIsMaximized(await current.isMaximized());
+      } catch {
+        /* ignore */
+      }
     });
-  }, [runWindowAction]);
+  }, [isMacRuntime, runWindowAction]);
 
   const closeWindow = useCallback(async () => {
     await runWindowAction(async (current) => {
       await current.close();
     });
   }, [runWindowAction]);
+
+  // Keep `isMaximized` in sync with native maximize/restore actions
+  // (border drag, OS menu, keyboard shortcuts) on platforms where we render
+  // custom window controls. macOS uses native traffic lights and hides our
+  // controls, so we skip the listener there to avoid the resize stutter that
+  // motivated removing the original effect.
+  useEffect(() => {
+    if (!isDesktopRuntime || isMacRuntime) return;
+    let mounted = true;
+    let offResized: (() => void) | null = null;
+    void (async () => {
+      const current = await withCurrentWindow();
+      if (!current || !mounted) return;
+      try {
+        setIsMaximized(await current.isMaximized());
+      } catch {
+        /* ignore */
+      }
+      try {
+        offResized = await current.onResized(async () => {
+          if (!mounted) return;
+          try {
+            setIsMaximized(await current.isMaximized());
+          } catch {
+            /* ignore */
+          }
+        });
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      mounted = false;
+      offResized?.();
+    };
+  }, [isDesktopRuntime, isMacRuntime, withCurrentWindow]);
 
   const startWindowDrag = useCallback(
     async (event: MouseEvent<HTMLDivElement>) => {
@@ -849,29 +931,6 @@ function App() {
     },
     [runWindowAction],
   );
-
-  useEffect(() => {
-    if (!isDesktopRuntime) return;
-    let mounted = true;
-    let offResized: (() => void) | null = null;
-    let offFocus: (() => void) | null = null;
-    void (async () => {
-      const current = await withCurrentWindow();
-      if (!current || !mounted) return;
-      setIsMaximized(await current.isMaximized());
-      offResized = await current.onResized(async () => {
-        setIsMaximized(await current.isMaximized());
-      });
-      offFocus = await current.onFocusChanged(async () => {
-        setIsMaximized(await current.isMaximized());
-      });
-    })();
-    return () => {
-      mounted = false;
-      offResized?.();
-      offFocus?.();
-    };
-  }, [isDesktopRuntime, withCurrentWindow]);
 
   const showWorkflowMain = activeTab !== "home" && activeTab !== "settings";
 
@@ -1187,6 +1246,11 @@ function App() {
     <div className="flex h-screen flex-col overflow-hidden bg-white text-gray-800">
       {isDesktopRuntime ? (
         <header className="flex h-11 flex-shrink-0 items-center border-b border-gray-200 bg-white">
+          {isMacRuntime ? (
+            // macOS: native traffic-light buttons are overlaid by the OS in the
+            // top-left thanks to titleBarStyle: "Overlay". Reserve space for them.
+            <div className="w-[78px] shrink-0" />
+          ) : null}
           <div
             className="flex min-w-0 flex-1 select-none items-center gap-2 px-3 text-gray-800"
             data-tauri-drag-region
@@ -1196,42 +1260,44 @@ function App() {
             <img alt="M-Cube" className="h-5 w-5 shrink-0" src="/icons/icon.svg" />
             <span className="truncate text-sm font-semibold">M-Cube</span>
           </div>
-          <div className="flex items-center pr-1">
-            <button
-              aria-label="Minimize"
-              className="inline-flex h-8 w-10 items-center justify-center rounded text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-              onClick={() => void minimizeWindow()}
-              type="button"
-            >
-              <span className="h-px w-3 bg-current" />
-            </button>
-            <button
-              aria-label={isMaximized ? "Restore" : "Maximize"}
-              className="inline-flex h-8 w-10 items-center justify-center rounded text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-              onClick={() => void toggleMaximizeWindow()}
-              type="button"
-            >
-              {isMaximized ? (
+          {!isMacRuntime ? (
+            <div className="flex items-center pr-1">
+              <button
+                aria-label="Minimize"
+                className="inline-flex h-8 w-10 items-center justify-center rounded text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                onClick={() => void minimizeWindow()}
+                type="button"
+              >
+                <span className="h-px w-3 bg-current" />
+              </button>
+              <button
+                aria-label={isMaximized ? "Restore" : "Maximize"}
+                className="inline-flex h-8 w-10 items-center justify-center rounded text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                onClick={() => void toggleMaximizeWindow()}
+                type="button"
+              >
+                {isMaximized ? (
+                  <span className="relative block h-3.5 w-3.5">
+                    <span className="absolute left-1 top-0.5 h-2.5 w-2.5 border border-current bg-white" />
+                    <span className="absolute left-0 top-1.5 h-2.5 w-2.5 border border-current bg-white" />
+                  </span>
+                ) : (
+                  <span className="block h-3 w-3 border border-current" />
+                )}
+              </button>
+              <button
+                aria-label="Close"
+                className="inline-flex h-8 w-10 items-center justify-center rounded text-gray-600 hover:bg-red-600 hover:text-white"
+                onClick={() => void closeWindow()}
+                type="button"
+              >
                 <span className="relative block h-3.5 w-3.5">
-                  <span className="absolute left-1 top-0.5 h-2.5 w-2.5 border border-current bg-white" />
-                  <span className="absolute left-0 top-1.5 h-2.5 w-2.5 border border-current bg-white" />
+                  <span className="absolute left-0 top-1.5 h-px w-3.5 rotate-45 bg-current" />
+                  <span className="absolute left-0 top-1.5 h-px w-3.5 -rotate-45 bg-current" />
                 </span>
-              ) : (
-                <span className="block h-3 w-3 border border-current" />
-              )}
-            </button>
-            <button
-              aria-label="Close"
-              className="inline-flex h-8 w-10 items-center justify-center rounded text-gray-600 hover:bg-red-600 hover:text-white"
-              onClick={() => void closeWindow()}
-              type="button"
-            >
-              <span className="relative block h-3.5 w-3.5">
-                <span className="absolute left-0 top-1.5 h-px w-3.5 rotate-45 bg-current" />
-                <span className="absolute left-0 top-1.5 h-px w-3.5 -rotate-45 bg-current" />
-              </span>
-            </button>
-          </div>
+              </button>
+            </div>
+          ) : null}
         </header>
       ) : null}
       <div className="flex min-h-0 flex-1 overflow-hidden">

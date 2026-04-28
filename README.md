@@ -50,10 +50,21 @@ M-Cube adopts a high-performance hybrid architecture of `FastAPI + React + Tauri
 
 ### Prerequisites
 - [Python 3.11+](https://www.python.org/)
-
-- [Node.js 18+](https://nodejs.org/) 
+- [uv](https://docs.astral.sh/uv/) (Python package & project manager — replaces `pip`)
+- [Node.js 18+](https://nodejs.org/)
+- [pnpm 10+](https://pnpm.io/) (frontend package manager — replaces `npm`)
 - [Rust Toolchain](https://rustup.rs/) (Only required for Tauri desktop dev/build) 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Only required for Docker deployment)
+
+> Install uv (one-liner):
+> - macOS/Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+> - Windows (PowerShell): `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+>
+> Install pnpm (recommended via Corepack, no extra install needed once Node.js ≥ 16.13):
+> ```bash
+> corepack enable
+> ```
+> Or standalone: `npm i -g pnpm` / `brew install pnpm`
 
 ### 0. Clone and Initialize
 
@@ -107,15 +118,17 @@ docker compose down
 **Terminal 1 (Start Backend Engine)**:
 
 ```bash
-pip install -r requirements.txt
-python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+# Install runtime dependencies from pyproject.toml + uv.lock into .venv
+uv sync --frozen
+# Run uvicorn inside the synced environment
+uv run uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 **Terminal 2 (Start Frontend Service)**:
 
 ```bash
-npm install --prefix frontend
-npm --prefix frontend run dev
+pnpm --dir frontend install
+pnpm --dir frontend dev
 ```
 
 **Network Service Access**:
@@ -128,19 +141,19 @@ npm --prefix frontend run dev
 Note: The `tauri:dev` command only launches the native desktop shell and will not automatically start the Python backend. Please ensure the backend service is running first according to Step 1 (Terminal 1).
 
 ```bash
-npm install --prefix frontend
-npm --prefix frontend run tauri:dev
+pnpm --dir frontend install
+pnpm --dir frontend tauri:dev
 ```
 
 ### 4. Local Desktop App
 
 ```bash
-npm --prefix frontend run tauri:build
+pnpm --dir frontend tauri:build
 ```
 
 Note: If you encounter a missing PyInstaller error during local building, you can run:
 ```bash
-pip install pyinstaller
+uv sync --frozen --group build
 ```
 
 ## 📄 License

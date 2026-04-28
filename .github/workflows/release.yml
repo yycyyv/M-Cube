@@ -47,12 +47,25 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -76,9 +89,14 @@ jobs:
           ls -la frontend/src-tauri/binaries || true
 
       - name: Install backend build dependencies
+        # build_backend_sidecar.py invokes `sys.executable -m PyInstaller`,
+        # so install runtime deps + pyinstaller into the active interpreter
+        # (the one from setup-python, used by `python scripts/...`).
+        # Cross-platform: export the locked deps to a file, then install.
+        shell: bash
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          uv export --frozen --no-dev --no-hashes --format requirements-txt -o requirements.lock.txt
+          uv pip install --system -r requirements.lock.txt pyinstaller
 
       - name: Build backend sidecar binary
         run: python scripts/build_backend_sidecar.py
@@ -90,7 +108,7 @@ jobs:
           file frontend/src-tauri/binaries/* || true
 
       - name: Install frontend dependencies
-        run: npm ci --prefix frontend
+        run: pnpm --dir frontend install --frozen-lockfile
 
       - name: Build and publish Tauri app
         uses: tauri-apps/tauri-action@v0
