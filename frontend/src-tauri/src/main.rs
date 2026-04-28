@@ -32,6 +32,20 @@ fn set_main_window_icon(app: &tauri::App) {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn configure_main_window_platform(app: &tauri::App) {
+    // On macOS, use the native traffic-light buttons via titleBarStyle: Overlay,
+    // so re-enable decorations (the JSON config sets decorations=false for Windows/Linux).
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_decorations(true);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn configure_main_window_platform(_app: &tauri::App) {
+    // Windows/Linux: keep frameless window with custom titlebar (decorations=false from config).
+}
+
 fn resolve_log_file(app_handle: &tauri::AppHandle) -> PathBuf {
     if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
         let log_dir = app_data_dir.join("runtime").join("logs");
@@ -132,6 +146,7 @@ fn main() {
         .manage(BackendProcessState(Mutex::new(None)))
         .setup(|app| {
             set_main_window_icon(app);
+            configure_main_window_platform(app);
 
             if cfg!(debug_assertions) {
                 // In dev mode, backend is expected to run separately (uvicorn).

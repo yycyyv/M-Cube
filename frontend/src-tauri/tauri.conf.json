@@ -16,7 +16,9 @@
         "width": 1440,
         "height": 900,
         "resizable": true,
-        "decorations": false
+        "decorations": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {
