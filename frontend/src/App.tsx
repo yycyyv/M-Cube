@@ -886,6 +886,42 @@ function App() {
     });
   }, [runWindowAction]);
 
+  // Keep `isMaximized` in sync with native maximize/restore actions
+  // (border drag, OS menu, keyboard shortcuts) on platforms where we render
+  // custom window controls. macOS uses native traffic lights and hides our
+  // controls, so we skip the listener there to avoid the resize stutter that
+  // motivated removing the original effect.
+  useEffect(() => {
+    if (!isDesktopRuntime || isMacRuntime) return;
+    let mounted = true;
+    let offResized: (() => void) | null = null;
+    void (async () => {
+      const current = await withCurrentWindow();
+      if (!current || !mounted) return;
+      try {
+        setIsMaximized(await current.isMaximized());
+      } catch {
+        /* ignore */
+      }
+      try {
+        offResized = await current.onResized(async () => {
+          if (!mounted) return;
+          try {
+            setIsMaximized(await current.isMaximized());
+          } catch {
+            /* ignore */
+          }
+        });
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      mounted = false;
+      offResized?.();
+    };
+  }, [isDesktopRuntime, isMacRuntime, withCurrentWindow]);
+
   const startWindowDrag = useCallback(
     async (event: MouseEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
